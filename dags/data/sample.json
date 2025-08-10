@@ -1,0 +1,22 @@
+[
+    {
+        "name": "Ali",
+        "age": 25,
+        "city": "Tehran"
+    },
+    {
+        "name": "Sara",
+        "age": 30,
+        "city": "Shiraz"
+    },
+    {
+        "name": "Reza",
+        "age": 28,
+        "city": "Mashhad"
+    },
+    {
+        "name": "Neda",
+        "age": 22,
+        "city": "Tabriz"
+    }
+]
