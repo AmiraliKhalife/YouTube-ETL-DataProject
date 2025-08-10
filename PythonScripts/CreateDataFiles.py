@@ -120,7 +120,7 @@ def generate_videos_json(filename, usernames, num_records):
 
 if __name__ == "__main__":
     NUM_RECORDS = 20000000  # 20 million
-    NUM_RECORDS_TEST = 10000
+    NUM_RECORDS_TEST = 10000 # test data number
 
     print("Generating CSV data...")
     usernames = generate_channels_csv("channels_stripped.csv", NUM_RECORDS)
