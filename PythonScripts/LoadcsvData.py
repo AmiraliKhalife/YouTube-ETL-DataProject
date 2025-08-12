@@ -4,62 +4,72 @@ from datetime import datetime
 import pandas as pd
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import os
+from psycopg2.extras import execute_values
 
 base_dir = os.path.dirname(__file__)
-data_dir = os.path.join(base_dir,'data')
+data_dir = os.path.join(base_dir, 'data')
 data_path = os.path.join(data_dir, "channels_stripped.csv")
 
+
 def load_csv_to_postgres():
-    pg = PostgresHook(postgres_conn_id= 'postgres_conn')
+    pg = PostgresHook(postgres_conn_id='postgres_conn')
     conn = pg.get_conn()
     cursor = conn.cursor()
-    cursor.execute('''create table if not exists channels(
-                                     id serial primary key,
-                                     username text not null,
-                                     total_video_visit bigint check(total_video_visit>=0),
-                                     video_count int check(video_count>= 0),
-                                     start_date_timestamp bigint check(start_date_timestamp>=0),
-                                     followers_count bigint check(followers_count>=0),
-                                     country text,
-                                     created_at timestamp default current_timestamp,
-                                     update_count int
-                                     );''')
-    
-    chunksize = 50000  # Set this number based on your system's RAM and CPU.
 
-    for chunk in pd.read_csv(data_path, chunksize=chunksize):
+    cursor.execute('''CREATE TABLE IF NOT EXISTS channels(
+                        id SERIAL PRIMARY KEY,
+                        username TEXT NOT NULL UNIQUE,
+                        total_video_visit BIGINT CHECK(total_video_visit >= 0),
+                        video_count INT CHECK(video_count >= 0),
+                        start_date_timestamp BIGINT CHECK(start_date_timestamp >= 0),
+                        followers_count BIGINT CHECK(followers_count >= 0),
+                        country TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        update_count INT
+                      );''')
+    conn.commit()
+
+    chunksize = 100000
+    total_rows = 0
+
+    for chunk_idx, chunk in enumerate(pd.read_csv(data_path, chunksize=chunksize), start=1):
         chunk.columns = chunk.columns.str.strip()
-        for _, row in chunk.iterrows():
-            cursor.execute(
-                '''insert into channels( username, total_video_visit, video_count, start_date_timestamp,
-                                          followers_count, country, update_count)
-                   values(%s, %s, %s, %s, %s, %s, %s)
-                   on conflict(id) do update
-                   set username= excluded.username,
-                       total_video_visit= excluded.total_video_visit,
-                       video_count= excluded.video_count,
-                       start_date_timestamp= excluded.start_date_timestamp,
-                       followers_count= excluded.followers_count,
-                       country= excluded.country,
-                       update_count= excluded.update_count;''',
-                (row['username'], row['total_video_visit'], row['video_count'],
-                 row['start_date_timestamp'], row['followers_count'],
-                 row['country'], row['update_count'])
-            )
+
+        records = list(chunk[['username', 'total_video_visit', 'video_count', 'start_date_timestamp',
+                              'followers_count', 'country', 'update_count']].itertuples(index=False, name=None))
+
+        sql = '''
+            INSERT INTO channels(username, total_video_visit, video_count, start_date_timestamp,
+                                  followers_count, country, update_count)
+            VALUES %s
+            ON CONFLICT (id) DO UPDATE SET
+                username = EXCLUDED.username,
+                total_video_visit = EXCLUDED.total_video_visit,
+                video_count = EXCLUDED.video_count,
+                start_date_timestamp = EXCLUDED.start_date_timestamp,
+                followers_count = EXCLUDED.followers_count,
+                country = EXCLUDED.country,
+                update_count = EXCLUDED.update_count;
+        '''
+
+        execute_values(cursor, sql, records)
         conn.commit()
 
+        total_rows += len(records)
+        print(f"Chunk {chunk_idx}: Inserted/Updated {len(records)} rows. Total rows so far: {total_rows}")
+
+    cursor.close()
     conn.close()
 
+
 with DAG(
-    dag_id='load_csv',
-    start_date= datetime(2025,1,1),
-    catchup= False,
-    schedule_interval= None,
-    tags=['csv,youtube']
+        dag_id='load_csv_to_postgreSQL',
+        start_date=datetime(2025, 1, 1),
+        catchup=False,
+        schedule_interval=None,
+        tags=['csv', 'youtube']
 ) as dage:
-
-    load_task=PythonOperator(
-        task_id= 'load_task',
-        python_callable= load_csv_to_postgres
+    load_task = PythonOperator(
+        task_id='load_task',
+        python_callable=load_csv_to_postgres
     )
-
